@@ -1,8 +1,9 @@
-import multiprocessing
+import asyncio
+import subprocess
 import sys
-from io import StringIO
 from typing import Dict
 
+from app.config import config
 from app.tool.base import BaseTool
 
 
@@ -22,54 +23,45 @@ class PythonExecute(BaseTool):
         "required": ["code"],
     }
 
-    def _run_code(self, code: str, result_dict: dict, safe_globals: dict) -> None:
-        original_stdout = sys.stdout
-        try:
-            output_buffer = StringIO()
-            sys.stdout = output_buffer
-            exec(code, safe_globals, safe_globals)
-            result_dict["observation"] = output_buffer.getvalue()
-            result_dict["success"] = True
-        except Exception as e:
-            result_dict["observation"] = str(e)
-            result_dict["success"] = False
-        finally:
-            sys.stdout = original_stdout
-
     async def execute(
         self,
         code: str,
-        timeout: int = 5,
+        timeout: int = 30,
     ) -> Dict:
         """
         Executes the provided Python code with a timeout.
+
+        Runs the code in a fresh interpreter via subprocess rather than
+        multiprocessing: on Windows, spawned multiprocessing children re-import
+        the heavy application entrypoint, which alone can exceed the timeout.
 
         Args:
             code (str): The Python code to execute.
             timeout (int): Execution timeout in seconds.
 
         Returns:
-            Dict: Contains 'output' with execution output or error message and 'success' status.
+            Dict: Contains 'observation' with execution output or error message and 'success' status.
         """
 
-        with multiprocessing.Manager() as manager:
-            result = manager.dict({"observation": "", "success": False})
-            if isinstance(__builtins__, dict):
-                safe_globals = {"__builtins__": __builtins__}
-            else:
-                safe_globals = {"__builtins__": __builtins__.__dict__.copy()}
-            proc = multiprocessing.Process(
-                target=self._run_code, args=(code, result, safe_globals)
-            )
-            proc.start()
-            proc.join(timeout)
-
-            # timeout process
-            if proc.is_alive():
-                proc.terminate()
-                proc.join(1)
+        def _run() -> Dict:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-X", "utf8", "-c", code],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout,
+                    cwd=str(config.workspace_root),
+                )
+                observation = result.stdout
+                if result.returncode != 0:
+                    observation += result.stderr
+                return {"observation": observation, "success": result.returncode == 0}
+            except subprocess.TimeoutExpired:
                 return {
                     "observation": f"Execution timeout after {timeout} seconds",
                     "success": False,
                 }
-            return dict(result)
+
+        return await asyncio.to_thread(_run)
