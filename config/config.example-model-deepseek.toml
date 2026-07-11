@@ -1,0 +1,46 @@
+# DeepSeek 低コスト運用向け設定例
+#
+# 使い方:
+#   1. このファイルを config/config.toml にコピー
+#   2. api_key に https://platform.deepseek.com で発行した API キーを設定
+#
+# コスト最適化のポイント:
+#   - deepseek-chat はツール呼び出し(function calling)対応で、エージェント用途に最適
+#   - DeepSeek はプロンプトの共通プレフィックスを自動キャッシュし、
+#     キャッシュヒット分の入力トークンは約1/10の価格になる
+#   - ログに "cache hit" 率とコスト概算が出力されるので確認できる
+
+# Global LLM configuration
+[llm]
+api_type = "deepseek"
+model = "deepseek-chat"                    # ツール呼び出し対応。エージェント用途はこれを推奨
+base_url = "https://api.deepseek.com/v1"   # OpenAI互換エンドポイント
+api_key = "YOUR_DEEPSEEK_API_KEY"          # https://platform.deepseek.com で取得
+max_tokens = 8192                          # deepseek-chat の最大出力トークン
+temperature = 0.0                          # エージェント用途は 0.0 を推奨
+
+# 推論モデルを使う場合 (コストは上がるが複雑な推論に強い):
+# [llm]
+# api_type = "deepseek"
+# model = "deepseek-reasoner"              # temperature は無視される
+# base_url = "https://api.deepseek.com/v1"
+# api_key = "YOUR_DEEPSEEK_API_KEY"
+# max_tokens = 8192
+
+# 注意: DeepSeek には画像入力(vision)対応モデルがないため、
+# ブラウザのスクリーンショットは自動的にテキスト情報のみで処理されます。
+# vision が必要な場合のみ、別プロバイダのモデルを設定してください:
+# [llm.vision]
+# model = "gpt-4o-mini"
+# base_url = "https://api.openai.com/v1"
+# api_key = "YOUR_OPENAI_API_KEY"
+# max_tokens = 8192
+# temperature = 0.0
+
+# MCP (Model Context Protocol) configuration
+[mcp]
+server_reference = "app.mcp.server"
+
+# Optional Runflow configuration
+[runflow]
+use_data_analysis_agent = false

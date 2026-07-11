@@ -151,39 +151,46 @@ class CostOptimizationMixin:
     トークン使用量の追跡と最適化を提供する。
     """
 
-    # トークン追跡
+    # トークン追跡（pydanticモデル側で PrivateAttr として再宣言される）
     _total_tokens_used: int = 0
-    _step_tokens: List[int] = Field(default_factory=list)
+    _step_tokens = None
 
     # コスト最適化設定
     max_context_messages: int = 10  # 保持するメッセージ数
     truncate_long_outputs: bool = True
     max_output_length: int = 2000
 
+    @staticmethod
+    def _get_role(msg) -> str:
+        if hasattr(msg, 'role'):
+            return msg.role
+        if isinstance(msg, dict):
+            return msg.get("role", "")
+        return ""
+
     def optimize_context(self, messages: List) -> List:
-        """コンテキストメッセージを最適化"""
+        """コンテキストメッセージを最適化
+
+        上限を超えたときだけ、上限の約半分まで一気に削る（ヒステリシス方式）。
+        毎ステップ先頭を1つずつ削るとメッセージ列のプレフィックスが常に変化し、
+        DeepSeek等の自動プロンプトキャッシュ（ヒット時は入力単価が大幅に安い）が
+        全く効かなくなるため、削減の頻度を下げてプレフィックスを安定させる。
+        """
         if len(messages) <= self.max_context_messages:
             return messages
 
-        # システムメッセージと最初のユーザーメッセージは保持
-        important_msgs = []
-        regular_msgs = []
+        # システムメッセージは保持
+        important_msgs = [m for m in messages if self._get_role(m) == "system"]
+        regular_msgs = [m for m in messages if self._get_role(m) != "system"]
 
-        for msg in messages:
-            if hasattr(msg, 'role'):
-                if msg.role == "system":
-                    important_msgs.append(msg)
-                else:
-                    regular_msgs.append(msg)
-            elif isinstance(msg, dict):
-                if msg.get("role") == "system":
-                    important_msgs.append(msg)
-                else:
-                    regular_msgs.append(msg)
+        # 上限の半分まで削り、次の削減まで履歴の先頭を安定させる
+        keep_count = max(self.max_context_messages // 2 - len(important_msgs), 1)
+        recent_msgs = regular_msgs[-keep_count:]
 
-        # 最新のメッセージを優先
-        keep_count = self.max_context_messages - len(important_msgs)
-        recent_msgs = regular_msgs[-keep_count:] if keep_count > 0 else []
+        # 先頭が tool メッセージだと対応する assistant の tool_calls を失って
+        # APIエラーになるため、先頭の tool メッセージは取り除く
+        while recent_msgs and self._get_role(recent_msgs[0]) == "tool":
+            recent_msgs.pop(0)
 
         logger.info(f"📉 Optimized context: {len(messages)} -> {len(important_msgs) + len(recent_msgs)} messages")
         return important_msgs + recent_msgs
@@ -207,17 +214,37 @@ class CostOptimizationMixin:
     def track_tokens(self, token_count: int):
         """トークン使用量を追跡"""
         self._total_tokens_used += token_count
+        if not isinstance(self._step_tokens, list):
+            self._step_tokens = []
         self._step_tokens.append(token_count)
 
     def get_token_summary(self) -> Dict:
-        """トークン使用量のサマリー"""
-        if not self._step_tokens:
+        """トークン使用量のサマリー（LLMクライアントのAPI実測値を優先）"""
+        llm = getattr(self, "llm", None)
+        if llm is not None and hasattr(llm, "total_input_tokens"):
+            summary = {
+                "input_tokens": llm.total_input_tokens,
+                "completion_tokens": llm.total_completion_tokens,
+                "total": llm.total_input_tokens + llm.total_completion_tokens,
+                "cache_hit_tokens": getattr(llm, "total_cache_hit_tokens", 0),
+            }
+            if llm.total_input_tokens:
+                summary["cache_hit_rate"] = (
+                    f"{summary['cache_hit_tokens'] / llm.total_input_tokens * 100:.0f}%"
+                )
+            cost = llm.get_cost_estimate() if hasattr(llm, "get_cost_estimate") else None
+            if cost is not None:
+                summary["estimated_cost_usd"] = round(cost, 4)
+            return summary
+
+        step_tokens = self._step_tokens if isinstance(self._step_tokens, list) else []
+        if not step_tokens:
             return {"total": 0, "avg_per_step": 0, "steps": 0}
 
         return {
             "total": self._total_tokens_used,
-            "avg_per_step": self._total_tokens_used // len(self._step_tokens),
-            "steps": len(self._step_tokens)
+            "avg_per_step": self._total_tokens_used // len(step_tokens),
+            "steps": len(step_tokens)
         }
 
     def should_optimize(self) -> bool:

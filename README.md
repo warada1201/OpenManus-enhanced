@@ -4,6 +4,15 @@
 
 English | [中文](README_zh.md) | [한국어](README_ko.md) | [日本語](README_ja.md)
 
+> [!NOTE]
+> **This repository is an unofficial fork of [FoundationAgents/OpenManus](https://github.com/FoundationAgents/OpenManus).**
+> All credit for the original project goes to the OpenManus team at [@MetaGPT](https://github.com/geekan/MetaGPT). This fork adds experimental enhancements (persistent memory, self-correction, cost tracking) and is tuned for **low-cost operation with DeepSeek**. Both the original project and this fork are distributed under the [MIT License](LICENSE).
+>
+> - 🚀 Enhanced-mode usage & DeepSeek setup: **[README_enhanced.md](README_enhanced.md)**
+> - ⚙️ DeepSeek config template: [config/config.example-model-deepseek.toml](config/config.example-model-deepseek.toml)
+>
+> **このリポジトリは [FoundationAgents/OpenManus](https://github.com/FoundationAgents/OpenManus) の非公式フォークです。** オリジナルの功績はすべて OpenManus 開発チームにあります。本フォークは永続メモリ・自己修正・コスト追跡などの実験的な拡張を加え、**DeepSeek による低コスト運用**向けに調整したものです。使い方は [README_enhanced.md](README_enhanced.md) を参照してください。
+
 [![GitHub stars](https://img.shields.io/github/stars/FoundationAgents/OpenManus?style=social)](https://github.com/FoundationAgents/OpenManus/stargazers)
 &ensp;
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) &ensp;

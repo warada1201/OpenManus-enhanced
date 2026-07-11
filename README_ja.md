@@ -4,6 +4,12 @@
 
 [English](README.md) | [中文](README_zh.md) | [한국어](README_ko.md) | 日本語
 
+> [!NOTE]
+> **このリポジトリは [FoundationAgents/OpenManus](https://github.com/FoundationAgents/OpenManus) の非公式フォークです。** オリジナルの功績はすべて OpenManus 開発チーム（[@MetaGPT](https://github.com/geekan/MetaGPT)）にあります。本フォークは永続メモリ・自己修正・コスト追跡などの実験的な拡張を加え、**DeepSeek による低コスト運用**向けに調整したものです。オリジナル・本フォークとも [MITライセンス](LICENSE) で配布されています。
+>
+> - 🚀 強化版の使い方・DeepSeekセットアップ: **[README_enhanced.md](README_enhanced.md)**
+> - ⚙️ DeepSeek設定テンプレート: [config/config.example-model-deepseek.toml](config/config.example-model-deepseek.toml)
+
 [![GitHub stars](https://img.shields.io/github/stars/FoundationAgents/OpenManus?style=social)](https://github.com/FoundationAgents/OpenManus/stargazers)
 &ensp;
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) &ensp;

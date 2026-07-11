@@ -1,4 +1,12 @@
 ### Project-specific ###
+# Real config with API keys — NEVER commit (use config/config.example*.toml as templates)
+config/config.toml
+config/mcp.json
+
+# Persistent agent memory (may contain task history)
+.openmanus_memory.db
+*.db
+
 # Logs
 logs/
 

@@ -10,7 +10,7 @@ OpenManus Enhanced Manus Agent
 
 from typing import Dict, List, Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field, PrivateAttr, model_validator
 
 from app.agent.browser import BrowserContextHelper
 from app.agent.toolcall import ToolCallAgent
@@ -80,8 +80,8 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
     max_context_messages: int = 15  # コンテキストメッセージ数
 
     # トークン追跡
-    _total_tokens_used: int = 0
-    _step_tokens: List[int] = Field(default_factory=list)
+    _total_tokens_used: int = PrivateAttr(default=0)
+    _step_tokens: List[int] = PrivateAttr(default_factory=list)
 
     @model_validator(mode="after")
     def initialize_helper(self) -> "EnhancedManus":
@@ -205,12 +205,17 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
                     break
 
             if task_summary:
+                token_count = (
+                    self.llm.total_input_tokens + self.llm.total_completion_tokens
+                    if hasattr(self.llm, "total_input_tokens")
+                    else self._total_tokens_used
+                )
                 persistent_memory.save_task(
                     task_type="general",
                     task_summary=task_summary,
                     success=True,  # 完了時は成功とみなす
                     tools_used=list(set(tools_used)),
-                    token_count=self._total_tokens_used
+                    token_count=token_count
                 )
         except Exception as e:
             logger.debug(f"Could not save task to memory: {e}")

@@ -13,7 +13,7 @@ from openai import (
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_random_exponential,
 )
@@ -32,6 +32,8 @@ from app.schema import (
 
 
 REASONING_MODELS = ["o1", "o3-mini"]
+# Models that ignore/reject the temperature parameter but still take max_tokens
+NO_TEMPERATURE_MODELS = ["deepseek-reasoner"]
 MULTIMODAL_MODELS = [
     "gpt-4-vision-preview",
     "gpt-4o",
@@ -40,6 +42,14 @@ MULTIMODAL_MODELS = [
     "claude-3-sonnet-20240229",
     "claude-3-haiku-20240307",
 ]
+
+# USD per 1M tokens. cache_hit applies to prompt tokens served from the
+# provider's prefix cache (DeepSeek reports these in usage.prompt_cache_hit_tokens).
+# Prices as of late 2025 — update if the provider changes them.
+MODEL_PRICING = {
+    "deepseek-chat": {"input": 0.28, "cache_hit": 0.028, "output": 0.42},
+    "deepseek-reasoner": {"input": 0.28, "cache_hit": 0.028, "output": 0.42},
+}
 
 
 class TokenCounter:
@@ -200,6 +210,7 @@ class LLM:
             # Add token counting related attributes
             self.total_input_tokens = 0
             self.total_completion_tokens = 0
+            self.total_cache_hit_tokens = 0
             self.max_input_tokens = (
                 llm_config.max_input_tokens
                 if hasattr(llm_config, "max_input_tokens")
@@ -235,16 +246,46 @@ class LLM:
     def count_message_tokens(self, messages: List[dict]) -> int:
         return self.token_counter.count_message_tokens(messages)
 
-    def update_token_count(self, input_tokens: int, completion_tokens: int = 0) -> None:
+    def update_token_count(
+        self,
+        input_tokens: int,
+        completion_tokens: int = 0,
+        cache_hit_tokens: int = 0,
+    ) -> None:
         """Update token counts"""
         # Only track tokens if max_input_tokens is set
         self.total_input_tokens += input_tokens
         self.total_completion_tokens += completion_tokens
+        self.total_cache_hit_tokens += cache_hit_tokens
+
+        cache_info = ""
+        if cache_hit_tokens:
+            hit_rate = cache_hit_tokens / input_tokens * 100 if input_tokens else 0
+            cache_info = f", Cache hit={cache_hit_tokens} ({hit_rate:.0f}%)"
         logger.info(
-            f"Token usage: Input={input_tokens}, Completion={completion_tokens}, "
+            f"Token usage: Input={input_tokens}, Completion={completion_tokens}{cache_info}, "
             f"Cumulative Input={self.total_input_tokens}, Cumulative Completion={self.total_completion_tokens}, "
             f"Total={input_tokens + completion_tokens}, Cumulative Total={self.total_input_tokens + self.total_completion_tokens}"
         )
+
+    def _extract_cache_hit_tokens(self, usage) -> int:
+        """Read provider-reported prompt cache hits (DeepSeek returns prompt_cache_hit_tokens)"""
+        if usage is None:
+            return 0
+        return getattr(usage, "prompt_cache_hit_tokens", 0) or 0
+
+    def get_cost_estimate(self) -> Optional[float]:
+        """Estimated cumulative cost in USD, or None if pricing for the model is unknown"""
+        pricing = MODEL_PRICING.get(self.model)
+        if not pricing:
+            return None
+        cache_hit = min(self.total_cache_hit_tokens, self.total_input_tokens)
+        cache_miss = self.total_input_tokens - cache_hit
+        return (
+            cache_miss * pricing["input"]
+            + cache_hit * pricing["cache_hit"]
+            + self.total_completion_tokens * pricing["output"]
+        ) / 1_000_000
 
     def check_token_limit(self, input_tokens: int) -> bool:
         """Check if token limits are exceeded"""
@@ -354,9 +395,9 @@ class LLM:
     @retry(
         wait=wait_random_exponential(min=1, max=60),
         stop=stop_after_attempt(6),
-        retry=retry_if_exception_type(
-            (OpenAIError, Exception, ValueError)
-        ),  # Don't retry TokenLimitExceeded
+        retry=retry_if_not_exception_type(
+            TokenLimitExceeded
+        ),  # Don't retry TokenLimitExceeded — retrying it only burns tokens
     )
     async def ask(
         self,
@@ -412,9 +453,10 @@ class LLM:
                 params["max_completion_tokens"] = self.max_tokens
             else:
                 params["max_tokens"] = self.max_tokens
-                params["temperature"] = (
-                    temperature if temperature is not None else self.temperature
-                )
+                if self.model not in NO_TEMPERATURE_MODELS:
+                    params["temperature"] = (
+                        temperature if temperature is not None else self.temperature
+                    )
 
             if not stream:
                 # Non-streaming request
@@ -481,9 +523,9 @@ class LLM:
     @retry(
         wait=wait_random_exponential(min=1, max=60),
         stop=stop_after_attempt(6),
-        retry=retry_if_exception_type(
-            (OpenAIError, Exception, ValueError)
-        ),  # Don't retry TokenLimitExceeded
+        retry=retry_if_not_exception_type(
+            TokenLimitExceeded
+        ),  # Don't retry TokenLimitExceeded — retrying it only burns tokens
     )
     async def ask_with_images(
         self,
@@ -584,9 +626,10 @@ class LLM:
                 params["max_completion_tokens"] = self.max_tokens
             else:
                 params["max_tokens"] = self.max_tokens
-                params["temperature"] = (
-                    temperature if temperature is not None else self.temperature
-                )
+                if self.model not in NO_TEMPERATURE_MODELS:
+                    params["temperature"] = (
+                        temperature if temperature is not None else self.temperature
+                    )
 
             # Handle non-streaming request
             if not stream:
@@ -595,7 +638,10 @@ class LLM:
                 if not response.choices or not response.choices[0].message.content:
                     raise ValueError("Empty or invalid response from LLM")
 
-                self.update_token_count(response.usage.prompt_tokens)
+                self.update_token_count(
+                    response.usage.prompt_tokens,
+                    cache_hit_tokens=self._extract_cache_hit_tokens(response.usage),
+                )
                 return response.choices[0].message.content
 
             # Handle streaming request
@@ -637,9 +683,9 @@ class LLM:
     @retry(
         wait=wait_random_exponential(min=1, max=60),
         stop=stop_after_attempt(6),
-        retry=retry_if_exception_type(
-            (OpenAIError, Exception, ValueError)
-        ),  # Don't retry TokenLimitExceeded
+        retry=retry_if_not_exception_type(
+            TokenLimitExceeded
+        ),  # Don't retry TokenLimitExceeded — retrying it only burns tokens
     )
     async def ask_tool(
         self,
@@ -724,9 +770,10 @@ class LLM:
                 params["max_completion_tokens"] = self.max_tokens
             else:
                 params["max_tokens"] = self.max_tokens
-                params["temperature"] = (
-                    temperature if temperature is not None else self.temperature
-                )
+                if self.model not in NO_TEMPERATURE_MODELS:
+                    params["temperature"] = (
+                        temperature if temperature is not None else self.temperature
+                    )
 
             params["stream"] = False  # Always use non-streaming for tool requests
             response: ChatCompletion = await self.client.chat.completions.create(
@@ -741,7 +788,9 @@ class LLM:
 
             # Update token counts
             self.update_token_count(
-                response.usage.prompt_tokens, response.usage.completion_tokens
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                self._extract_cache_hit_tokens(response.usage),
             )
 
             return response.choices[0].message
