@@ -8,8 +8,8 @@ OpenManus Enhanced Base Agent
 ミックスインとして使用する。
 """
 
-from typing import Dict, List, Optional, Tuple
 from enum import Enum
+from typing import Dict, List, Tuple
 
 from pydantic import Field
 
@@ -18,6 +18,7 @@ from app.logger import logger
 
 class ErrorType(str, Enum):
     """エラータイプの分類"""
+
     TOOL_EXECUTION = "tool_execution"
     API_ERROR = "api_error"
     TIMEOUT = "timeout"
@@ -27,6 +28,7 @@ class ErrorType(str, Enum):
 
 class RecoveryStrategy(str, Enum):
     """リカバリー戦略"""
+
     RETRY = "retry"  # 同じアプローチで再試行
     ALTERNATIVE = "alternative"  # 別のアプローチを試す
     SIMPLIFY = "simplify"  # タスクを簡略化
@@ -97,16 +99,16 @@ class SelfCorrectionMixin:
             "type": self.classify_error(error).value,
             "message": str(error)[:500],
             "context": context[:200],
-            "retry_count": self.current_retry_count
+            "retry_count": self.current_retry_count,
         }
         self.error_history.append(error_record)
 
         # メモリに保存（永続メモリがあれば）
         try:
             from app.memory.persistent import persistent_memory
+
             persistent_memory.save_error_pattern(
-                error_type=error_record["type"],
-                error_message=error_record["message"]
+                error_type=error_record["type"], error_message=error_record["message"]
             )
         except ImportError:
             pass
@@ -120,7 +122,7 @@ class SelfCorrectionMixin:
             RecoveryStrategy.ALTERNATIVE: f"The previous method didn't work. {hint}. Use an alternative solution.",
             RecoveryStrategy.SIMPLIFY: f"Task is too complex. {hint}. Break it into simpler steps.",
             RecoveryStrategy.SKIP: f"Cannot complete this step. {hint}. Proceed to next step.",
-            RecoveryStrategy.ABORT: "Critical error. Cannot continue execution."
+            RecoveryStrategy.ABORT: "Critical error. Cannot continue execution.",
         }
 
         return prompts.get(strategy, "Error occurred. Try a different approach.")
@@ -162,7 +164,7 @@ class CostOptimizationMixin:
 
     @staticmethod
     def _get_role(msg) -> str:
-        if hasattr(msg, 'role'):
+        if hasattr(msg, "role"):
             return msg.role
         if isinstance(msg, dict):
             return msg.get("role", "")
@@ -192,7 +194,9 @@ class CostOptimizationMixin:
         while recent_msgs and self._get_role(recent_msgs[0]) == "tool":
             recent_msgs.pop(0)
 
-        logger.info(f"📉 Optimized context: {len(messages)} -> {len(important_msgs) + len(recent_msgs)} messages")
+        logger.info(
+            f"📉 Optimized context: {len(messages)} -> {len(important_msgs) + len(recent_msgs)} messages"
+        )
         return important_msgs + recent_msgs
 
     def truncate_output(self, output: str) -> str:
@@ -229,10 +233,12 @@ class CostOptimizationMixin:
                 "cache_hit_tokens": getattr(llm, "total_cache_hit_tokens", 0),
             }
             if llm.total_input_tokens:
-                summary["cache_hit_rate"] = (
-                    f"{summary['cache_hit_tokens'] / llm.total_input_tokens * 100:.0f}%"
-                )
-            cost = llm.get_cost_estimate() if hasattr(llm, "get_cost_estimate") else None
+                summary[
+                    "cache_hit_rate"
+                ] = f"{summary['cache_hit_tokens'] / llm.total_input_tokens * 100:.0f}%"
+            cost = (
+                llm.get_cost_estimate() if hasattr(llm, "get_cost_estimate") else None
+            )
             if cost is not None:
                 summary["estimated_cost_usd"] = round(cost, 4)
             return summary
@@ -244,7 +250,7 @@ class CostOptimizationMixin:
         return {
             "total": self._total_tokens_used,
             "avg_per_step": self._total_tokens_used // len(step_tokens),
-            "steps": len(step_tokens)
+            "steps": len(step_tokens),
         }
 
     def should_optimize(self) -> bool:
@@ -265,7 +271,7 @@ def get_efficient_system_prompt(base_prompt: str, max_length: int = 1000) -> str
         return base_prompt
 
     # 重要な部分を保持して圧縮
-    lines = base_prompt.split('\n')
+    lines = base_prompt.split("\n")
     important_lines = [l for l in lines if l.strip()][:10]
 
-    return '\n'.join(important_lines)[:max_length]
+    return "\n".join(important_lines)[:max_length]

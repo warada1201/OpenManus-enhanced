@@ -44,16 +44,13 @@ async def main():
         description="Run Enhanced OpenManus agent with improved capabilities"
     )
     parser.add_argument(
-        "--prompt",
-        type=str,
-        required=False,
-        help="Input prompt for the agent"
+        "--prompt", type=str, required=False, help="Input prompt for the agent"
     )
     parser.add_argument(
         "--max-steps",
         type=int,
         default=15,
-        help="Maximum steps for execution (default: 15)"
+        help="Maximum steps for execution (default: 15)",
     )
     args = parser.parse_args()
 
@@ -70,9 +67,11 @@ async def main():
 
         logger.info("🚀 Starting Enhanced OpenManus...")
         logger.info(f"   Max steps: {args.max_steps}")
-        logger.info(f"   Memory context loaded: {'Yes' if agent.memory_context else 'No'}")
+        logger.info(
+            f"   Memory context loaded: {'Yes' if agent.memory_context else 'No'}"
+        )
 
-        result = await agent.run(prompt)
+        await agent.run(prompt)
 
         # トークン使用量のレポート
         token_summary = agent.get_token_summary()

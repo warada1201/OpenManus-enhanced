@@ -5,13 +5,12 @@ OpenManus Persistent Memory System
 セッション間で学習・適応するためのメモリシステム。
 """
 
+import hashlib
 import json
 import sqlite3
-import hashlib
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +20,7 @@ from app.logger import logger
 
 class MemoryEntry(BaseModel):
     """単一のメモリエントリ"""
+
     id: str
     timestamp: str
     task_type: str  # "code", "search", "browser", "analysis" など
@@ -32,6 +32,7 @@ class MemoryEntry(BaseModel):
 
 class UserPreference(BaseModel):
     """ユーザー設定の保存"""
+
     key: str
     value: Any
     updated_at: str
@@ -86,7 +87,8 @@ class PersistentMemory:
             cursor = conn.cursor()
 
             # タスク履歴テーブル
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS task_history (
                     id TEXT PRIMARY KEY,
                     timestamp TEXT NOT NULL,
@@ -97,29 +99,35 @@ class PersistentMemory:
                     notes TEXT,
                     token_count INTEGER DEFAULT 0
                 )
-            """)
+            """
+            )
 
             # ユーザー設定テーブル
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS user_preferences (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
-            """)
+            """
+            )
 
             # ツール使用統計テーブル
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS tool_statistics (
                     tool_name TEXT PRIMARY KEY,
                     use_count INTEGER DEFAULT 0,
                     success_count INTEGER DEFAULT 0,
                     last_used TEXT
                 )
-            """)
+            """
+            )
 
             # エラーパターンテーブル
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS error_patterns (
                     error_hash TEXT PRIMARY KEY,
                     error_type TEXT NOT NULL,
@@ -128,7 +136,8 @@ class PersistentMemory:
                     occurrence_count INTEGER DEFAULT 1,
                     last_occurred TEXT
                 )
-            """)
+            """
+            )
 
     def generate_task_id(self, task_summary: str) -> str:
         """タスクIDの生成"""
@@ -143,7 +152,7 @@ class PersistentMemory:
         success: bool,
         tools_used: List[str],
         notes: Optional[str] = None,
-        token_count: int = 0
+        token_count: int = 0,
     ) -> str:
         """タスクの保存"""
         task_id = self.generate_task_id(task_summary)
@@ -151,55 +160,66 @@ class PersistentMemory:
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO task_history
                 (id, timestamp, task_type, task_summary, success, tools_used, notes, token_count)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task_id,
-                timestamp,
-                task_type,
-                task_summary,
-                1 if success else 0,
-                json.dumps(tools_used),
-                notes,
-                token_count
-            ))
+            """,
+                (
+                    task_id,
+                    timestamp,
+                    task_type,
+                    task_summary,
+                    1 if success else 0,
+                    json.dumps(tools_used),
+                    notes,
+                    token_count,
+                ),
+            )
 
             # ツール統計の更新
             for tool in tools_used:
                 self._update_tool_statistics(cursor, tool, success)
 
-        logger.info(f"Saved task {task_id}: {task_type} - {'success' if success else 'failed'}")
+        logger.info(
+            f"Saved task {task_id}: {task_type} - {'success' if success else 'failed'}"
+        )
         return task_id
 
     def _update_tool_statistics(self, cursor, tool_name: str, success: bool):
         """ツール使用統計の更新"""
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO tool_statistics (tool_name, use_count, success_count, last_used)
             VALUES (?, 1, ?, ?)
             ON CONFLICT(tool_name) DO UPDATE SET
                 use_count = use_count + 1,
                 success_count = success_count + ?,
                 last_used = ?
-        """, (
-            tool_name,
-            1 if success else 0,
-            datetime.now().isoformat(),
-            1 if success else 0,
-            datetime.now().isoformat()
-        ))
+        """,
+            (
+                tool_name,
+                1 if success else 0,
+                datetime.now().isoformat(),
+                1 if success else 0,
+                datetime.now().isoformat(),
+            ),
+        )
 
     def get_similar_tasks(self, task_type: str, limit: int = 5) -> List[MemoryEntry]:
         """類似タスクの取得（学習用）"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM task_history
                 WHERE task_type = ? AND success = 1
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (task_type, limit))
+            """,
+                (task_type, limit),
+            )
 
             rows = cursor.fetchall()
             return [
@@ -210,7 +230,7 @@ class PersistentMemory:
                     task_summary=row["task_summary"],
                     success=bool(row["success"]),
                     tools_used=json.loads(row["tools_used"] or "[]"),
-                    notes=row["notes"]
+                    notes=row["notes"],
                 )
                 for row in rows
             ]
@@ -219,7 +239,8 @@ class PersistentMemory:
         """よく使用される成功率の高いツールを取得"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     tool_name,
                     use_count,
@@ -229,7 +250,9 @@ class PersistentMemory:
                 WHERE use_count >= 3
                 ORDER BY success_rate DESC, use_count DESC
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
 
             return [dict(row) for row in cursor.fetchall()]
 
@@ -237,7 +260,7 @@ class PersistentMemory:
         self,
         error_type: str,
         error_message: str,
-        recovery_strategy: Optional[str] = None
+        recovery_strategy: Optional[str] = None,
     ):
         """エラーパターンの保存（自己修正用）"""
         error_hash = hashlib.sha256(
@@ -246,24 +269,29 @@ class PersistentMemory:
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO error_patterns (error_hash, error_type, error_message, recovery_strategy, last_occurred)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(error_hash) DO UPDATE SET
                     occurrence_count = occurrence_count + 1,
                     recovery_strategy = COALESCE(?, recovery_strategy),
                     last_occurred = ?
-            """, (
-                error_hash,
-                error_type,
-                error_message[:500],
-                recovery_strategy,
-                datetime.now().isoformat(),
-                recovery_strategy,
-                datetime.now().isoformat()
-            ))
+            """,
+                (
+                    error_hash,
+                    error_type,
+                    error_message[:500],
+                    recovery_strategy,
+                    datetime.now().isoformat(),
+                    recovery_strategy,
+                    datetime.now().isoformat(),
+                ),
+            )
 
-    def get_recovery_strategy(self, error_type: str, error_message: str) -> Optional[str]:
+    def get_recovery_strategy(
+        self, error_type: str, error_message: str
+    ) -> Optional[str]:
         """既知のエラーに対するリカバリー戦略を取得"""
         error_hash = hashlib.sha256(
             f"{error_type}:{error_message[:100]}".encode()
@@ -271,10 +299,13 @@ class PersistentMemory:
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT recovery_strategy FROM error_patterns
                 WHERE error_hash = ? AND recovery_strategy IS NOT NULL
-            """, (error_hash,))
+            """,
+                (error_hash,),
+            )
 
             row = cursor.fetchone()
             return row["recovery_strategy"] if row else None
@@ -283,19 +314,19 @@ class PersistentMemory:
         """ユーザー設定の保存"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO user_preferences (key, value, updated_at)
                 VALUES (?, ?, ?)
-            """, (key, json.dumps(value), datetime.now().isoformat()))
+            """,
+                (key, json.dumps(value), datetime.now().isoformat()),
+            )
 
     def get_preference(self, key: str, default: Any = None) -> Any:
         """ユーザー設定の取得"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT value FROM user_preferences WHERE key = ?",
-                (key,)
-            )
+            cursor.execute("SELECT value FROM user_preferences WHERE key = ?", (key,))
             row = cursor.fetchone()
             return json.loads(row["value"]) if row else default
 
@@ -303,13 +334,15 @@ class PersistentMemory:
         """トークン使用量のサマリー"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) as total_tasks,
                     SUM(token_count) as total_tokens,
                     AVG(token_count) as avg_tokens_per_task
                 FROM task_history
-            """)
+            """
+            )
             row = cursor.fetchone()
             return dict(row) if row else {}
 

@@ -12,8 +12,8 @@ from pydantic import Field
 from app.agent.toolcall import ToolCallAgent
 from app.llm import LLM
 from app.logger import logger
-from app.schema import AgentState, Message
-from app.tool import ToolCollection, Terminate
+from app.schema import Message
+from app.tool import Terminate, ToolCollection
 from app.tool.python_execute import PythonExecute
 from app.tool.str_replace_editor import StrReplaceEditor
 
@@ -56,7 +56,7 @@ class VerificationResult:
         status: str,
         summary: str,
         findings: List[str] = None,
-        recommendations: List[str] = None
+        recommendations: List[str] = None,
     ):
         self.status = status
         self.summary = summary
@@ -68,7 +68,7 @@ class VerificationResult:
             "status": self.status,
             "summary": self.summary,
             "findings": self.findings,
-            "recommendations": self.recommendations
+            "recommendations": self.recommendations,
         }
 
     def __str__(self) -> str:
@@ -113,10 +113,7 @@ class VerificationAgent(ToolCallAgent):
     verification_result: Optional[VerificationResult] = None
 
     async def verify(
-        self,
-        task_description: str,
-        task_output: str,
-        artifacts: List[str] = None
+        self, task_description: str, task_output: str, artifacts: List[str] = None
     ) -> VerificationResult:
         """
         タスク結果の検証
@@ -152,7 +149,7 @@ class VerificationAgent(ToolCallAgent):
             return VerificationResult(
                 status=VerificationResult.FAIL,
                 summary=f"Verification error: {str(e)}",
-                findings=[str(e)]
+                findings=[str(e)],
             )
 
     def _parse_verification_result(self, result: str) -> VerificationResult:
@@ -178,7 +175,7 @@ class VerificationAgent(ToolCallAgent):
             status=status,
             summary=summary,
             findings=self._extract_list(result, "finding"),
-            recommendations=self._extract_list(result, "recommend")
+            recommendations=self._extract_list(result, "recommend"),
         )
 
     def _extract_list(self, text: str, keyword: str) -> List[str]:
@@ -201,9 +198,7 @@ class VerificationAgent(ToolCallAgent):
 
 
 async def quick_verify(
-    task_description: str,
-    task_output: str,
-    llm: Optional[LLM] = None
+    task_description: str, task_output: str, llm: Optional[LLM] = None
 ) -> VerificationResult:
     """
     軽量な検証（エージェントを使わない版）
@@ -222,9 +217,7 @@ Reply with: PASS/FAIL/PARTIAL and one-line reason."""
 
     try:
         response = await llm.ask(
-            messages=[Message.user_message(prompt)],
-            stream=False,
-            temperature=0.0
+            messages=[Message.user_message(prompt)], stream=False, temperature=0.0
         )
 
         response_upper = response.upper()
@@ -235,14 +228,10 @@ Reply with: PASS/FAIL/PARTIAL and one-line reason."""
         else:
             status = VerificationResult.PARTIAL
 
-        return VerificationResult(
-            status=status,
-            summary=response[:200]
-        )
+        return VerificationResult(status=status, summary=response[:200])
 
     except Exception as e:
         logger.error(f"Quick verification failed: {e}")
         return VerificationResult(
-            status=VerificationResult.PARTIAL,
-            summary=f"Could not verify: {str(e)}"
+            status=VerificationResult.PARTIAL, summary=f"Could not verify: {str(e)}"
         )

@@ -13,15 +13,14 @@ from typing import Dict, List, Optional
 from pydantic import Field, PrivateAttr, model_validator
 
 from app.agent.browser import BrowserContextHelper
+from app.agent.enhanced import CostOptimizationMixin, SelfCorrectionMixin
 from app.agent.toolcall import ToolCallAgent
-from app.agent.enhanced import SelfCorrectionMixin, CostOptimizationMixin
 from app.config import config
 from app.logger import logger
 from app.prompt.enhanced import (
-    ENHANCED_SYSTEM_PROMPT,
     ENHANCED_NEXT_STEP_PROMPT,
-    build_system_prompt,
     build_recovery_prompt,
+    build_system_prompt,
 )
 from app.tool import Terminate, ToolCollection
 from app.tool.ask_human import AskHuman
@@ -98,6 +97,7 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
         """永続メモリからコンテキストをロード"""
         try:
             from app.memory.persistent import persistent_memory
+
             self.memory_context = persistent_memory.get_context_for_task("general")
         except Exception as e:
             logger.debug(f"Could not load memory context: {e}")
@@ -106,8 +106,7 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
     def _build_prompts(self):
         """プロンプトを構築"""
         self.system_prompt = build_system_prompt(
-            directory=str(config.workspace_root),
-            context=self.memory_context
+            directory=str(config.workspace_root), context=self.memory_context
         )
         self.next_step_prompt = ENHANCED_NEXT_STEP_PROMPT
 
@@ -198,15 +197,15 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
             # 使用したツールを抽出
             tools_used = []
             for msg in self.memory.messages:
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
                     for tc in msg.tool_calls:
-                        if hasattr(tc, 'function'):
+                        if hasattr(tc, "function"):
                             tools_used.append(tc.function.name)
 
             # タスク内容を抽出
             task_summary = ""
             for msg in self.memory.messages:
-                if hasattr(msg, 'role') and msg.role == "user" and msg.content:
+                if hasattr(msg, "role") and msg.role == "user" and msg.content:
                     task_summary = msg.content[:200]
                     break
 
@@ -221,7 +220,7 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
                     task_summary=task_summary,
                     success=True,  # 完了時は成功とみなす
                     tools_used=list(set(tools_used)),
-                    token_count=token_count
+                    token_count=token_count,
                 )
         except Exception as e:
             logger.debug(f"Could not save task to memory: {e}")
@@ -273,7 +272,9 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
             result = await super().run(request)
 
             # 軽量検証（オプション）
-            if config.run_flow_config and hasattr(config.run_flow_config, 'enable_verification'):
+            if config.run_flow_config and hasattr(
+                config.run_flow_config, "enable_verification"
+            ):
                 if config.run_flow_config.enable_verification:
                     await self._quick_verify(request or "", result)
 
@@ -285,7 +286,10 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
         """軽量な検証を実行"""
         try:
             from app.agent.verification import quick_verify
+
             verification = await quick_verify(task, result, self.llm)
-            logger.info(f"✓ Verification: {verification.status} - {verification.summary}")
+            logger.info(
+                f"✓ Verification: {verification.status} - {verification.summary}"
+            )
         except Exception as e:
             logger.debug(f"Verification skipped: {e}")
