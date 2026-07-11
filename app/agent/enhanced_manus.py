@@ -83,6 +83,9 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
     _total_tokens_used: int = PrivateAttr(default=0)
     _step_tokens: List[int] = PrivateAttr(default_factory=list)
 
+    # cleanup は run() と呼び出し元の両方の finally から呼ばれ得るため冪等にする
+    _cleaned_up: bool = PrivateAttr(default=False)
+
     @model_validator(mode="after")
     def initialize_helper(self) -> "EnhancedManus":
         """Initialize components."""
@@ -175,6 +178,9 @@ class EnhancedManus(ToolCallAgent, SelfCorrectionMixin, CostOptimizationMixin):
 
     async def cleanup(self):
         """Clean up resources."""
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         if self.browser_context_helper:
             await self.browser_context_helper.cleanup_browser()
         if self._initialized:
